@@ -3,17 +3,25 @@ import csv
 import os
 import codecs
 import logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 from sickle import Sickle
 from sickle.models import Record
 import solr
 from lxml import etree
+from ucldc_queue import UCLDC_Queue
 
-DIR_HARVEST_ROOT = "/home/mredar/workspace/ucldc/oai_harvest/harvest_repo"
-DIR_HARVEST_ROOT = ".\\data"
-URL_SOLR = 'http://ec2-54-242-28-248.compute-1.amazonaws.com:8080/solr/dc-collection/'
+import time
+
+try:
+    DIR_HARVEST_ROOT = os.environ['DIR_OAI_HARVEST_ROOT']
+except KeyError:
+    msg = "You must set the DIR_OAI_HARVEST_ROOT environment variable to save record files"
+    print msg
+    raise Exception(msg)
+
+URL_SOLR = os.environ.get('URL_SOLR', 'http://54.243.192.165:8080/solr/dc-collection/')
+QUEUE_OAI_HARVEST = os.environ.get('QUEUE_OAI_HARVEST', 'OAI_harvest')
 HARVEST_LIST_FILE = "./UCLDC harvest collections - Sheet1.csv"
-HARVEST_LIST_FILE = "./testing-current-set.csv"
 
 import string
 VALID_PATH_CHARS = "-_. %s%s" % (string.ascii_letters, string.digits)
@@ -23,7 +31,6 @@ def get_oai_harvest_sets(oai_sets_file=HARVEST_LIST_FILE): #Eventually to read c
     config = csv.reader(open(oai_sets_file))
     for row in config:
         (campus, collection, description, access_restrictions, URL, metadata_level, metadata_standard, ready_for_surfacing, URL_harvest, nutch_regex, type_harvest, oai_set, oai_metadata) = row[0:13]
-        print row[0:13]
         if type_harvest.lower() == 'oai':
             oai_sets.append((URL_harvest, oai_set, oai_metadata))
     return oai_sets
@@ -31,11 +38,14 @@ def get_oai_harvest_sets(oai_sets_file=HARVEST_LIST_FILE): #Eventually to read c
 def harvest_oai_sets(oai_sets, dir_root=DIR_HARVEST_ROOT):
     n_harvest_recs = 0
     for (URL_harvest, oai_set, oai_metadata) in oai_sets:
+        time_start = time.time()
         oai_set_path = ''.join([ c if c in VALID_PATH_CHARS else '_' for c in oai_set ])
         dir_records = os.path.join(DIR_HARVEST_ROOT, oai_set_path)
         if not os.path.exists(dir_records):
             os.mkdir(dir_records) 
+        logging.info("URL to harvest:" + URL_harvest)
         client=Sickle(URL_harvest)
+        logging.info("OAI SET:"+oai_set+" MD:"+oai_metadata)
         records = client.ListRecords(set=oai_set, metadataPrefix=oai_metadata)
         for rec in records:
             rec_id_et = rec.header.xml.find("./{http://www.openarchives.org/OAI/2.0/}identifier")
@@ -47,7 +57,9 @@ def harvest_oai_sets(oai_sets, dir_root=DIR_HARVEST_ROOT):
             logging.debug("solr_index next on rec:"+unicode(rec))
             solr_index_record(rec)
             n_harvest_recs += 1
-        return n_harvest_recs
+        time_end = time.time()
+        print "OAI : ", URL_harvest, ' : ', oai_set, ' took: ', unicode(time_end-time_start)
+    return n_harvest_recs
 
 def solr_index_record(sickle_rec):
     '''Index the sickle record object in solr'''
