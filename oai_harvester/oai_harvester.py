@@ -117,16 +117,16 @@ def process_oai_queue():
     while m:
         n += 1
         dt_start = datetime.datetime.now()
-        logging.debug("\n" + str(dt_start) + " START MESSAGE " + str(n) + "\n\n")
+        logging.info("\n" + str(dt_start) + " START MESSAGE " + str(n) + "\n\n")
         msg_dict = json.loads(m.get_body())
         #msg_dict is {url:XX, set_spec:YY, campus:[{resource_uri:ZZ, slug:TT, name: QQ},]}
-        logging.debug(msg_dict)
+        logging.info(msg_dict)
         harvest_to_solr_oai_set(msg_dict)
         #if ok, delete m
         dt_end = datetime.datetime.now()
-        logging.debug("\n\n\n============== " + str(dt_end-dt_start) + " Done with Message:" + m.get_body() +  "\n\n\n\n")
+        logging.info("\n\n\n============== " + str((dt_end-dt_start).seconds) + " seconds Done with Message:" + str(n) + " : " + m.get_body() +  "\n\n\n\n")
         q_oai.delete_message(m)
-        m = q_oai.read(30)
+        m = q_oai.read()
 
 
 def main(args):
