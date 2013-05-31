@@ -25,53 +25,11 @@ from sickle import Sickle
 from sickle.models import Record
 import solr
 from lxml import etree
-from ucldc_queue import UCLDC_Queue
+from ucldc_queue import UCLDC_Queues, QUEUE_OAI_HARVEST, QUEUE_OAI_HARVEST_ERR
 import boto.sqs as sqs
 
-try:
-    DIR_HARVEST_ROOT = os.environ['DIR_OAI_HARVEST_ROOT']
-except KeyError:
-    msg = "You must set the DIR_OAI_HARVEST_ROOT environment variable to save record files"
-    print msg
-    raise Exception(msg)
-
 URL_SOLR = os.environ.get('URL_SOLR', 'http://54.243.192.165:8080/solr/dc-collection/')
-QUEUE_OAI_HARVEST = os.environ.get('QUEUE_OAI_HARVEST', 'OAI_harvest')
-HARVEST_LIST_FILE = "./UCLDC harvest collections - Sheet1.csv"
 
-import string
-VALID_PATH_CHARS = "-_. %s%s" % (string.ascii_letters, string.digits)
-
-def get_oai_harvest_sets(oai_sets_file=HARVEST_LIST_FILE): #Eventually to read collection registry
-    oai_sets = []
-    config = csv.reader(open(oai_sets_file))
-    for row in config:
-        (campus, collection, description, access_restrictions, URL, metadata_level, metadata_standard, ready_for_surfacing, URL_harvest, nutch_regex, type_harvest, oai_set, oai_metadata) = row[0:13]
-        print row[0:13]
-        if type_harvest.lower() == 'oai':
-            oai_sets.append((URL_harvest, oai_set, oai_metadata))
-    return oai_sets
-
-def harvest_oai_sets(oai_sets, dir_root=DIR_HARVEST_ROOT):
-    n_harvest_recs = 0
-    for (URL_harvest, oai_set, oai_metadata) in oai_sets:
-        oai_set_path = ''.join([ c if c in VALID_PATH_CHARS else '_' for c in oai_set ])
-        dir_records = os.path.join(DIR_HARVEST_ROOT, oai_set_path)
-        if not os.path.exists(dir_records):
-            os.mkdir(dir_records) 
-        client=Sickle(URL_harvest)
-        records = client.ListRecords(set=oai_set, metadataPrefix=oai_metadata)
-        for rec in records:
-            rec_id_et = rec.header.xml.find("./{http://www.openarchives.org/OAI/2.0/}identifier")
-            rec_id = rec_id_et.text
-            #translate any bad path chars in rec_id to form filename
-            rec_id_path = ''.join([ c if c in VALID_PATH_CHARS else '_' for c in rec_id ])
-            with codecs.open(os.path.join(dir_records, rec_id_path+".xml"), 'w' , 'utf-8') as foo:
-                foo.write(rec.raw)
-            logging.debug("solr_index next on rec:"+unicode(rec))
-            solr_index_record(rec)
-            n_harvest_recs += 1
-        return n_harvest_recs
 
 def harvest_to_solr_oai_set(oai_set):
     '''Harvest the oai set and return a list of records?
@@ -107,8 +65,8 @@ def solr_index_record(sickle_rec, extra_metadata=None):
 
 def process_oai_queue():
     '''Run on any messages in the OAI_harvest queue'''
-    conn=sqs.connect_to_region('us-east-1')
-    q_oai = conn.get_queue(QUEUE_OAI_HARVEST) #10 min timeout, should be OK?
+    queues=UCLDC_Queues()
+    q_oai = queues.get_queue(QUEUE_OAI_HARVEST)
     n = 0 
     m = q_oai.read()
     #TODO: need to pass the message to subroutines, may need to up the
@@ -121,16 +79,24 @@ def process_oai_queue():
         msg_dict = json.loads(m.get_body())
         #msg_dict is {url:XX, set_spec:YY, campus:[{resource_uri:ZZ, slug:TT, name: QQ},]}
         logging.info(msg_dict)
-        harvest_to_solr_oai_set(msg_dict)
-        #if ok, delete m
-        dt_end = datetime.datetime.now()
-        logging.info("\n\n\n============== " + str((dt_end-dt_start).seconds) + " seconds Done with Message:" + str(n) + " : " + m.get_body() +  "\n\n\n\n")
+        try:
+            harvest_to_solr_oai_set(msg_dict)
+            dt_end = datetime.datetime.now()
+            logging.info("\n\n\n============== " + str((dt_end-dt_start).seconds) + " seconds Done with Message:" + str(n) + " : " + m.get_body() +  "\n\n\n\n")
+        except Exception, e:
+            # add message to error q, will be deleted from incoming
+            q_err = queues.get_queue(QUEUE_OAI_HARVEST_ERR)
+            msg_dict['excp'] = str(e)
+            msg = json.dumps(msg_dict)
+            q_msg = sqs.message.Message()
+            q_msg.set_body(msg)
+            status = q_err.write(q_msg)
         q_oai.delete_message(m)
         m = q_oai.read()
-
 
 def main(args):
     process_oai_queue()
 
 if __name__=='__main__':
+    #TODO: test here?
     main(sys.argv)
