@@ -45,7 +45,7 @@ def harvest_to_solr_oai_set(oai_set):
         if (n % 100) == 0:
             logging.info("Set has taken :" + str(elapsed_time) + " seconds.")
             logging.info("OAI REC NUM: " + str(n) + " SET:" + str(oai_set))
-        solr_index_record(rec, extra_metadata={'campus':oai_set['campus']})
+        solr_index_record(rec, extra_metadata=oai_set)
 
 def solr_index_record(sickle_rec, extra_metadata=None):
     '''Index the sickle record object in solr'''
@@ -56,11 +56,14 @@ def solr_index_record(sickle_rec, extra_metadata=None):
     sdoc['title_exact'] = sdoc['title'][0]
     #ADD REPO RELATION!!! AND ANY OTHER COLLECTION REGISTRY RELEVANT STUFF HERE
     if 'campus' in extra_metadata:
+        sdoc['campus'] = []
         for campus in extra_metadata['campus']:
             if 'publisher' in sdoc:
                 sdoc['publisher'].append(campus['name'])
             else:
                 sdoc['publisher'] = [campus['name'],]
+            sdoc['campus'].append(campus['name'])
+    sdoc['collection_name'] = extra_metadata['collection_name']
     s.add(sdoc, commit=True)
 
 def process_oai_queue():
@@ -69,10 +72,8 @@ def process_oai_queue():
     q_oai = queues.get_queue(QUEUE_OAI_HARVEST)
     n = 0 
     m = q_oai.read()
-    #TODO: need to pass the message to subroutines, may need to up the
-    #visibility_timeout? -- If working on mulitple machines/processes.
-    #could save timeout in registry
     while m:
+        q_oai.delete_message(m) #delete, will pass result to another queue
         n += 1
         dt_start = datetime.datetime.now()
         logging.info("\n" + str(dt_start) + " START MESSAGE " + str(n) + "\n\n")
@@ -84,14 +85,16 @@ def process_oai_queue():
             dt_end = datetime.datetime.now()
             logging.info("\n\n\n============== " + str((dt_end-dt_start).seconds) + " seconds Done with Message:" + str(n) + " : " + m.get_body() +  "\n\n\n\n")
         except Exception, e:
-            # add message to error q, will be deleted from incoming
+            # add message to error q
             q_err = queues.get_queue(QUEUE_OAI_HARVEST_ERR)
+            print "EXCEPTION DIR", dir(e)
+            print "EXCEPT ARGS", e.args
+            print "EXCEPT MSG", e.message
             msg_dict['excp'] = str(e)
             msg = json.dumps(msg_dict)
             q_msg = sqs.message.Message()
             q_msg.set_body(msg)
             status = q_err.write(q_msg)
-        q_oai.delete_message(m)
         m = q_oai.read()
 
 def main(args):
