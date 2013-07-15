@@ -26,9 +26,11 @@ from sickle.models import Record
 import solr
 from lxml import etree
 from ucldc_queue import UCLDC_Queues, QUEUE_OAI_HARVEST, QUEUE_OAI_HARVEST_ERR
+from ucldc_queue import QUEUE_OAI_HARVEST_HARVESTING
 import boto.sqs as sqs
 
-URL_SOLR = os.environ.get('URL_SOLR', 'http://54.243.192.165:8080/solr/dc-collection/')
+#INTIAL dev machine (nutch-dev) URL_SOLR = os.environ.get('URL_SOLR', 'http://54.243.192.165:8080/solr/dc-collection/')
+URL_SOLR = os.environ.get('URL_SOLR', 'http://107.21.228.130:8080/solr/dc-collection/')
 
 
 def harvest_to_solr_oai_set(oai_set):
@@ -70,10 +72,13 @@ def process_oai_queue():
     '''Run on any messages in the OAI_harvest queue'''
     queues=UCLDC_Queues()
     q_oai = queues.get_queue(QUEUE_OAI_HARVEST)
+    q_harvesting = queues.get_queue(QUEUE_OAI_HARVEST_HARVESTING)
     n = 0 
     m = q_oai.read()
     while m:
+        m_harvesting = q_harvesting.write(m)
         q_oai.delete_message(m) #delete, will pass result to another queue
+
         n += 1
         dt_start = datetime.datetime.now()
         logging.info("\n" + str(dt_start) + " START MESSAGE " + str(n) + "\n\n")
@@ -83,6 +88,7 @@ def process_oai_queue():
         try:
             harvest_to_solr_oai_set(msg_dict)
             dt_end = datetime.datetime.now()
+            q_harvesting.delete(m_harvesting)
             logging.info("\n\n\n============== " + str((dt_end-dt_start).seconds) + " seconds Done with Message:" + str(n) + " : " + m.get_body() +  "\n\n\n\n")
         except Exception, e:
             # add message to error q
