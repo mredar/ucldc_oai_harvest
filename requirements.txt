@@ -1,0 +1,3 @@
+sickle>=0.3
+solrpy
+#git+https://github.com/mredar/ucldc_queue.git
