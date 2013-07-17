@@ -8,7 +8,6 @@ from sickle import Sickle
 from sickle.models import Record
 import solr
 from lxml import etree
-from ucldc_queue import UCLDC_Queue
 
 import time
 

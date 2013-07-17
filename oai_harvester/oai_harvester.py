@@ -25,13 +25,16 @@ from sickle import Sickle
 from sickle.models import Record
 import solr
 from lxml import etree
-from ucldc_queue import UCLDC_Queues, QUEUE_OAI_HARVEST, QUEUE_OAI_HARVEST_ERR
-from ucldc_queue import QUEUE_OAI_HARVEST_HARVESTING
 import boto.sqs as sqs
+
+QUEUE_OAI_HARVEST = os.environ.get('QUEUE_OAI_HARVEST', 'OAI_harvest')
+QUEUE_OAI_HARVEST_ERR = os.environ.get('QUEUE_OAI_HARVEST_ERR', 'OAI_harvest_error')
+QUEUE_OAI_HARVEST_HARVESTING = os.environ.get('QUEUE_OAI_HARVEST_HARVESTING', 'OAI_harvest_harvesting')
 
 #INTIAL dev machine (nutch-dev) URL_SOLR = os.environ.get('URL_SOLR', 'http://54.243.192.165:8080/solr/dc-collection/')
 URL_SOLR = os.environ.get('URL_SOLR', 'http://107.21.228.130:8080/solr/dc-collection/')
 
+SQS_CONNECTION = sqs.connect_to_region('us-east-1')
 
 def harvest_to_solr_oai_set(oai_set):
     '''Harvest the oai set and return a list of records?
@@ -70,9 +73,8 @@ def solr_index_record(sickle_rec, extra_metadata=None):
 
 def process_oai_queue():
     '''Run on any messages in the OAI_harvest queue'''
-    queues=UCLDC_Queues()
-    q_oai = queues.get_queue(QUEUE_OAI_HARVEST)
-    q_harvesting = queues.get_queue(QUEUE_OAI_HARVEST_HARVESTING)
+    q_oai = SQS_CONNECTION.get_queue(QUEUE_OAI_HARVEST)
+    q_harvesting = SQS_CONNECTION.get_queue(QUEUE_OAI_HARVEST_HARVESTING)
     n = 0 
     m = q_oai.read()
     while m:
@@ -89,10 +91,11 @@ def process_oai_queue():
             harvest_to_solr_oai_set(msg_dict)
             dt_end = datetime.datetime.now()
             q_harvesting.delete(m_harvesting)
+            m_harvesting.delete()
             logging.info("\n\n\n============== " + str((dt_end-dt_start).seconds) + " seconds Done with Message:" + str(n) + " : " + m.get_body() +  "\n\n\n\n")
         except Exception, e:
             # add message to error q
-            q_err = queues.get_queue(QUEUE_OAI_HARVEST_ERR)
+            q_err = SQS_CONNECTION.get_queue(QUEUE_OAI_HARVEST_ERR)
             print "EXCEPTION DIR", dir(e)
             print "EXCEPT ARGS", e.args
             print "EXCEPT MSG", e.message
