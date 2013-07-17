@@ -18,6 +18,7 @@ import csv
 import os
 import codecs
 import datetime
+import time
 import logging
 logging.basicConfig(level=logging.INFO)
 import json
@@ -71,6 +72,17 @@ def solr_index_record(sickle_rec, extra_metadata=None):
     sdoc['collection_name'] = extra_metadata['collection_name']
     s.add(sdoc, commit=True)
 
+def delete_msg_by_content_from_queue(q, msg):
+    '''Can't just hold an added message object, must retrieve from 
+    queue and then delete. Just delete the first matching body
+    '''
+    m = q.read()
+    while m:
+        if m.get_body() == msg.get_body():
+            m.delete()
+            return
+        m = q.read()
+        
 def process_oai_queue():
     '''Run on any messages in the OAI_harvest queue'''
     q_oai = SQS_CONNECTION.get_queue(QUEUE_OAI_HARVEST)
@@ -80,7 +92,6 @@ def process_oai_queue():
     while m:
         m_harvesting = q_harvesting.write(m)
         q_oai.delete_message(m) #delete, will pass result to another queue
-
         n += 1
         dt_start = datetime.datetime.now()
         logging.info("\n" + str(dt_start) + " START MESSAGE " + str(n) + "\n\n")
@@ -90,20 +101,20 @@ def process_oai_queue():
         try:
             harvest_to_solr_oai_set(msg_dict)
             dt_end = datetime.datetime.now()
-            q_harvesting.delete(m_harvesting)
-            m_harvesting.delete()
             logging.info("\n\n\n============== " + str((dt_end-dt_start).seconds) + " seconds Done with Message:" + str(n) + " : " + m.get_body() +  "\n\n\n\n")
         except Exception, e:
             # add message to error q
             q_err = SQS_CONNECTION.get_queue(QUEUE_OAI_HARVEST_ERR)
-            print "EXCEPTION DIR", dir(e)
-            print "EXCEPT ARGS", e.args
-            print "EXCEPT MSG", e.message
             msg_dict['excp'] = str(e)
             msg = json.dumps(msg_dict)
             q_msg = sqs.message.Message()
             q_msg.set_body(msg)
             status = q_err.write(q_msg)
+            time.sleep(10) #make sure harvesting message back on queue
+        # this doesn't work, need to "read" the message from queue to
+        # get a receipt handle that can be used to delete
+        #print "DELETE MESSAGE RE VAL", m_harvesting.delete()
+        delete_msg_by_content_from_queue(q_harvesting, m_harvesting)
         m = q_oai.read()
 
 def main(args):
