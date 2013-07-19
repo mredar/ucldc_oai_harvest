@@ -58,9 +58,14 @@ def solr_index_record(sickle_rec, extra_metadata=None):
     #TODO: make this global for efficiency?
     s = solr.Solr(URL_SOLR)
     sdoc = sickle_rec.metadata
-    sdoc['id'] = sickle_rec.header.identifier
-    sdoc['title_exact'] = sdoc['title'][0]
+    sdoc['id'] = extra_metadata['collection_name']+'-'+sickle_rec.header.identifier # use auto solr uuid, might have
+    #collisions here?
+    #sdoc['title_exact'] = sdoc['title'][0]
+    sdoc['created'] = sickle_rec.header.datestamp # how to make this write once
+    #need to query solr and see if id already in index
+    sdoc['last_modified'] = sickle_rec.header.datestamp
     #ADD REPO RELATION!!! AND ANY OTHER COLLECTION REGISTRY RELEVANT STUFF HERE
+    # last_modified or created field?
     if 'campus' in extra_metadata:
         sdoc['campus'] = []
         for campus in extra_metadata['campus']:
