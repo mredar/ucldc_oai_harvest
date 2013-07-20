@@ -1,3 +1,4 @@
+#! /usr/bin/env python
 '''UCLDC OAI Harvester: Collects records from OAI interfaces and inputs to
 basic solr schema. Driven off the collection registry'''
 '''
@@ -22,6 +23,8 @@ import time
 import logging
 logging.basicConfig(level=logging.INFO)
 import json
+import traceback
+import hashlib
 from sickle import Sickle
 from sickle.models import Record
 import solr
@@ -53,19 +56,40 @@ def harvest_to_solr_oai_set(oai_set):
             logging.info("OAI REC NUM: " + str(n) + " SET:" + str(oai_set))
         solr_index_record(rec, extra_metadata=oai_set)
 
+def pad_partial_datestamp(dt_str):
+    '''Convert any strings from OAI to a valid Solr date string
+    OAI datestamp is often of form YYYY-MM-DD need to pad out the format to
+    solr's format: YYYY-MM-DDTHH:MM:SSZ
+    '''
+    dt = dt_str
+    if dt.find('T') < 0:
+        dt = dt + 'T00:00:00Z'
+    return dt
+def get_md5_id_from_oai_identifiers(ids):
+    '''From a list of oai identifier fields, pick a URL and convert to md5
+    to use as solr id
+    '''
+    for i in ids:
+        if i[:5] == 'http:':
+            md5= hashlib.md5()
+            md5.update(i)
+            return md5.hexdigest()
+    raise Exception("NO URL found in identifiers")
+
 def solr_index_record(sickle_rec, extra_metadata=None):
     '''Index the sickle record object in solr'''
     #TODO: make this global for efficiency?
     s = solr.Solr(URL_SOLR)
     sdoc = sickle_rec.metadata
-    sdoc['id'] = extra_metadata['collection_name']+'-'+sickle_rec.header.identifier # use auto solr uuid, might have
+    #use URL identifier md5 hash as id
+    #should probably move to solr, to help with other inputs
+    sdoc['id'] = get_md5_id_from_oai_identifiers(sdoc['identifier'])
+    oai_dt = pad_partial_datestamp(sickle_rec.header.datestamp)
     #collisions here?
     #sdoc['title_exact'] = sdoc['title'][0]
-    sdoc['created'] = sickle_rec.header.datestamp # how to make this write once
-    #need to query solr and see if id already in index
-    sdoc['last_modified'] = sickle_rec.header.datestamp
-    #ADD REPO RELATION!!! AND ANY OTHER COLLECTION REGISTRY RELEVANT STUFF HERE
-    # last_modified or created field?
+    # how to make created write once, then read only - update processor in
+    # solr
+    sdoc['created'] = sdoc['last_modified'] = oai_dt
     if 'campus' in extra_metadata:
         sdoc['campus'] = []
         for campus in extra_metadata['campus']:
@@ -108,9 +132,11 @@ def process_oai_queue():
             dt_end = datetime.datetime.now()
             logging.info("\n\n\n============== " + str((dt_end-dt_start).seconds) + " seconds Done with Message:" + str(n) + " : " + m.get_body() +  "\n\n\n\n")
         except Exception, e:
+            exc_type, exc_value, exc_traceback = sys.exc_info()
             # add message to error q
             q_err = SQS_CONNECTION.get_queue(QUEUE_OAI_HARVEST_ERR)
-            msg_dict['excp'] = str(e)
+            msg_dict['exceptinfo'] = repr(traceback.format_exception(exc_type, exc_value, exc_traceback))
+            logging.error(str(msg_dict))
             msg = json.dumps(msg_dict)
             q_msg = sqs.message.Message()
             q_msg.set_body(msg)
