@@ -30,6 +30,7 @@ from sickle.models import Record
 import solr
 from lxml import etree
 import boto.sqs as sqs
+import dateutil.parser 
 
 QUEUE_OAI_HARVEST = os.environ.get('QUEUE_OAI_HARVEST', 'OAI_harvest')
 QUEUE_OAI_HARVEST_ERR = os.environ.get('QUEUE_OAI_HARVEST_ERR', 'OAI_harvest_error')
@@ -56,15 +57,13 @@ def harvest_to_solr_oai_set(oai_set):
             logging.info("OAI REC NUM: " + str(n) + " SET:" + str(oai_set))
         solr_index_record(rec, extra_metadata=oai_set)
 
-def pad_partial_datestamp(dt_str):
-    '''Convert any strings from OAI to a valid Solr date string
-    OAI datestamp is often of form YYYY-MM-DD need to pad out the format to
-    solr's format: YYYY-MM-DDTHH:MM:SSZ
+def datetime_to_solr_date(dt):
+    '''Return the UTC solr style date string for the given datetime object
     '''
-    dt = dt_str
-    if dt.find('T') < 0:
-        dt = dt + 'T00:00:00Z'
-    return dt
+    #need to get zulu time for obj?
+    return dt.isoformat() + 'Z'
+    # doesn't work for dates < 1900 return dt.strftime('%Y-%m-%dT%H:%M:%SZ')
+
 def get_md5_id_from_oai_identifiers(ids):
     '''From a list of oai identifier fields, pick a URL and convert to md5
     to use as solr id
@@ -84,7 +83,7 @@ def solr_index_record(sickle_rec, extra_metadata=None):
     #use URL identifier md5 hash as id
     #should probably move to solr, to help with other inputs
     sdoc['id'] = get_md5_id_from_oai_identifiers(sdoc['identifier'])
-    oai_dt = pad_partial_datestamp(sickle_rec.header.datestamp)
+    oai_dt = datetime_to_solr_date(dateutil.parser.parse(sickle_rec.header.datestamp))
     #collisions here?
     #sdoc['title_exact'] = sdoc['title'][0]
     # how to make created write once, then read only - update processor in
@@ -99,6 +98,9 @@ def solr_index_record(sickle_rec, extra_metadata=None):
                 sdoc['publisher'] = [campus['name'],]
             sdoc['campus'].append(campus['name'])
     sdoc['collection_name'] = extra_metadata['collection_name']
+    #convert various dc dates into solr date fields
+    #need date_facet, date_facet_start, date_facet_end?
+    #for each dc date value parse into one or more values.
     s.add(sdoc, commit=True)
 
 def delete_msg_by_content_from_queue(q, msg):
