@@ -97,6 +97,14 @@ def solr_index_record(sickle_rec, extra_metadata=None):
             else:
                 sdoc['publisher'] = [campus['name'],]
             sdoc['campus'].append(campus['name'])
+    if 'repository' in extra_metadata:
+        sdoc['repository'] = []
+        for repository in extra_metadata['repository']:
+            if 'publisher' in sdoc:
+                sdoc['publisher'].append(repository['name'])
+            else:
+                sdoc['publisher'] = [repository['name'],]
+            sdoc['repository'].append(repository['name'])
     sdoc['collection_name'] = extra_metadata['collection_name']
     #convert various dc dates into solr date fields
     #need date_facet, date_facet_start, date_facet_end?
