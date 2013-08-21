@@ -25,7 +25,7 @@ def main(args):
         print 'Usage: find_item_url.py <query: default: *:*> <fq term e.g. \'campus:"San Diego"\'>'
         sys.exit(1)
     s = solr.Solr(URL_SOLR)
-    fq = ''
+    fq = '!url_item:[* TO *]'
     query = "*:*"
     if len(args) >= 2:
         query = args[1]
@@ -56,6 +56,7 @@ def main(args):
             for key, val in hit.items():
                 if key in INPUT_DOC_KEYS:
                     solr_up_doc[key] = val
+            print solr_up_doc['id'], solr_up_doc['url_item']
             s.add(solr_up_doc)
             n_added += 1
             if n_added % 100 == 0:
@@ -64,6 +65,7 @@ def main(args):
                 #print "Last item:", solr_up_doc['id'], solr_up_doc['url_item']
         print "NEXT Q:", query, fq, str(n_retrieved)
         #resp = s.select(query, fq=fq, start=n_retrieved)
+        s.commit()
         resp = resp.next_batch()
     print "NUM", n_added, '/', n_retrieved
 
