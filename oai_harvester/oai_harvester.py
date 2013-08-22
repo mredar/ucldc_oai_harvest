@@ -109,7 +109,13 @@ def solr_index_record(sickle_rec, extra_metadata=None):
     #convert various dc dates into solr date fields
     #need date_facet, date_facet_start, date_facet_end?
     #for each dc date value parse into one or more values.
-    s.add(sdoc, commit=True)
+    #if exists, update, so later values not deleted
+    if s.select('id:'+sdoc['id']):
+        logging.info( 'Updating:'+sdoc['id'])
+        s.update(sdoc, commit=True)
+    else:
+        logging.info( 'Adding:'+sdoc['id'])
+        s.add(sdoc, commit=True)
 
 def delete_msg_by_content_from_queue(q, msg):
     '''Can't just hold an added message object, must retrieve from 
@@ -154,7 +160,6 @@ def process_oai_queue():
             time.sleep(10) #make sure harvesting message back on queue
         # this doesn't work, need to "read" the message from queue to
         # get a receipt handle that can be used to delete
-        #print "DELETE MESSAGE RE VAL", m_harvesting.delete()
         delete_msg_by_content_from_queue(q_harvesting, m_harvesting)
         m = q_oai.read()
 
